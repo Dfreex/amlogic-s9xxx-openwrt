@@ -1,7 +1,9 @@
 #!/bin/bash
 #========================================================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
-# Description: Automatically Build OpenWrt (Super Light + Gaming Tuned + AdGuard Built-in + XOOD Signature)
+# Description: Automatically Build OpenWrt (Super Light + Gaming Tuned + AdGuard Built-in)
+# Function: DIY script (After updating feeds — modify the default IP, hostname, theme, add/remove packages, etc.)
+# Source code repository: https://github.com/openwrt/openwrt / Branch: main
 #========================================================================================================================
 
 # ------------------------------- Main source configuration -------------------------------
@@ -12,10 +14,7 @@ ip_regex="^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01
     sed -i "/lan) ipad=\${ipaddr:-/s/\${ipaddr:-\"[^\"]*\"}/\${ipaddr:-\"${1}\"}/" package/base-files/*/bin/config_generate
 }
 sed -i 's/root:::0:99999:7:::/root:$1$V4UetPzk$CYXluq4wUazHjmCDBCqXF.::0:99999:7:::/g' package/base-files/files/etc/shadow
-
-# --- CUSTOM SIGNATURE (FIRMWARE VERSION) ---
-sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d) by XOOD'|g" package/base-files/files/etc/openwrt_release
-echo "DISTRIB_DESCRIPTION='OpenWrt Gaming Edition V1'" >>package/base-files/files/etc/openwrt_release
+sed -i "s|DISTRIB_REVISION='.*'|DISTRIB_REVISION='R$(date +%Y.%m.%d)'|g" package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCEREPO='github.com/openwrt/openwrt'" >>package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCECODE='openwrt'" >>package/base-files/files/etc/openwrt_release
 echo "DISTRIB_SOURCEBRANCH='main'" >>package/base-files/files/etc/openwrt_release
@@ -36,14 +35,14 @@ git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app
 
 
 # =========================================================================================
-# 1. CLONE TEMA ARGON
+# 1. CLONE TEMA ARGON (GAYA CUSTOM ROM)
 # =========================================================================================
 git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
 git clone https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
 
 
 # =========================================================================================
-# 2. INJEKSI PAKET SUPER RINGAN + TTYD
+# 2. INJEKSI PAKET SUPER RINGAN
 # =========================================================================================
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci=y
@@ -57,7 +56,6 @@ CONFIG_PACKAGE_luci-app-sqm=y
 CONFIG_PACKAGE_sqm-scripts-tc-cake=y
 CONFIG_PACKAGE_kmod-sched-cake=y
 CONFIG_PACKAGE_luci-app-adguardhome=y
-CONFIG_PACKAGE_luci-app-ttyd=y
 EOF
 
 
@@ -70,6 +68,7 @@ cat << "EOF" > package/base-files/files/etc/uci-defaults/99-custom-setup
 #!/bin/sh
 
 # --- 1. JARINGAN & FIREWALL ---
+# Port bawaan STB (eth0) sebagai penyebar LAN
 uci set network.br_lan=device
 uci set network.br_lan.name='br-lan'
 uci set network.br_lan.type='bridge'
@@ -81,6 +80,7 @@ uci set network.lan.proto='static'
 uci set network.lan.ipaddr='192.168.1.1'
 uci set network.lan.netmask='255.255.255.0'
 
+# USB to LAN (eth1) sebagai penerima Internet (WAN)
 uci set network.wan=interface
 uci set network.wan.proto='dhcp'
 uci set network.wan.device='eth1'
@@ -91,10 +91,10 @@ uci set firewall.@zone[1].network='wan wan6'
 # --- 2. WIFI TEST ---
 uci set wireless.@wifi-device[0].disabled='0'
 uci set wireless.@wifi-iface[0].disabled='0'
-uci set wireless.@wifi-iface[0].ssid='XOOD-Net'
+uci set wireless.@wifi-iface[0].ssid='OpenWrt-STB'
 uci set wireless.@wifi-iface[0].network='lan'
 
-# --- 3. SQM & PING OPTIMIZER ---
+# --- 3. SQM & PING OPTIMIZER (OVERHEAD FIBER OPTIC & 8.5 Mbps Limit) ---
 uci set sqm.@queue[0].enabled='1'
 uci set sqm.@queue[0].interface='eth1'
 uci set sqm.@queue[0].download='8500'
@@ -105,24 +105,23 @@ uci set sqm.@queue[0].linklayer='ethernet'
 uci set sqm.@queue[0].overhead='44'
 
 # --- 4. DNSMASQ, ANTI KEBOCORAN IPV6, & FORCE DNS ADGUARD ---
+# Pindahkan port Dnsmasq agar port 53 bisa dipakai AdGuard
 uci set dhcp.@dnsmasq[0].port='5353'
 uci set dhcp.lan.dhcpv6='disabled'
 uci set dhcp.lan.ra='disabled'
 uci set dhcp.lan.ndp='disabled'
+# Kunci agar semua perangkat wajib meminta DNS dari IP STB
 uci add_list dhcp.lan.dhcp_option='6,192.168.1.1'
 
-# --- 5. TEMA, HOSTNAME, & TTYD AUTO-LOGIN ---
+# --- 5. TEMA ARGON DEFAULT ---
 uci set luci.main.mediaurlbase='/luci-static/argon'
-uci set system.@system[0].hostname='XOOD-STB'
-uci set ttyd.@ttyd[0].command='/bin/login -f root'
 
-# --- 6. AKTIFKAN ADGUARD HOME ---
+# --- 6. AKTIFKAN ADGUARD HOME LOKAL ---
 uci set adguardhome.AdGuardHome=adguardhome
 uci set adguardhome.AdGuardHome.enabled='1'
 
 # Simpan semua konfigurasi uci
 uci commit
-uci commit ttyd
 
 # --- 7. INJEKSI TCP BBR (ALGORITMA ANTI-LAG GOOGLE) ---
 echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
@@ -149,7 +148,7 @@ exit 0
 EOF
 
 # =========================================================================================
-# 4. DOWNLOAD CORE ADGUARD SAAT PROSES BUILD DI GITHUB
+# 4. DOWNLOAD & INJEKSI CORE ADGUARD LANGSUNG KE DALAM FIRMWARE (ANTI GAGAL INTERNET)
 # =========================================================================================
 mkdir -p files/usr/bin/AdGuardHome
 wget -qO /tmp/AdGuardHome.tar.gz https://github.com/AdguardTeam/AdGuardHome/releases/latest/download/AdGuardHome_linux_arm64.tar.gz
@@ -157,21 +156,5 @@ tar -xzvf /tmp/AdGuardHome.tar.gz -C /tmp/
 cp /tmp/AdGuardHome/AdGuardHome files/usr/bin/AdGuardHome/
 chmod +x files/usr/bin/AdGuardHome/AdGuardHome
 
-# =========================================================================================
-# 5. CUSTOM TERMINAL BANNER "XOOD"
-# =========================================================================================
-mkdir -p package/base-files/files/etc/
-cat << "EOF" > package/base-files/files/etc/banner
- __  __  ____   ____  ____  
- \ \/ / / __ \ / __ \|  _ \ 
-  \  / | |  | | |  | | | | |
-  /  \ | |__| | |__| | |_| |
- /_/\_\ \____/ \____/|____/ 
-                            
- -----------------------------------------------------------
-     FIRMWARE BY XOOD | ANTI-LAG GAMING EDITION
- -----------------------------------------------------------
-EOF
-
-# Memberikan izin eksekusi untuk script otomatisasi pertama kali
+# Memberikan izin eksekusi untuk script setup otomatis
 chmod +x package/base-files/files/etc/uci-defaults/99-custom-setup
