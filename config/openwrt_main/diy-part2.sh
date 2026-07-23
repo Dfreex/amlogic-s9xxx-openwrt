@@ -1,7 +1,7 @@
 #!/bin/bash
 #========================================================================================================================
 # https://github.com/ophub/amlogic-s9xxx-openwrt
-# Description: Automatically Build OpenWrt
+# Description: Automatically Build OpenWrt (Super Light + Gaming Tuned + AdGuard Built-in)
 # Function: DIY script (After updating feeds — modify the default IP, hostname, theme, add/remove packages, etc.)
 # Source code repository: https://github.com/openwrt/openwrt / Branch: main
 #========================================================================================================================
@@ -29,22 +29,20 @@ else
     echo 'CONFIG_CCACHE_DIR=""' >>.config
 fi
 
-# Add luci-app-amlogic (Untuk memantau suhu STB)
 rm -rf package/luci-app-amlogic
 git clone -b main https://github.com/ophub/luci-app-amlogic.git package/luci-app-amlogic
 # ------------------------------- Main source configuration ends -------------------------------
 
 
 # =========================================================================================
-# 1. CLONE TEMA ARGON (GAYA REYRE)
+# 1. CLONE TEMA ARGON (GAYA CUSTOM ROM)
 # =========================================================================================
-# Mengambil Tema Argon versi terbaru dan Plugin pengubah Wallpaper Login
 git clone https://github.com/jerrykuku/luci-theme-argon.git package/luci-theme-argon
 git clone https://github.com/jerrykuku/luci-app-argon-config.git package/luci-app-argon-config
 
 
 # =========================================================================================
-# 2. INJEKSI SEMUA PAKET (WIFI, SQM, ADGUARD, TEMA ARGON)
+# 2. INJEKSI PAKET SUPER RINGAN
 # =========================================================================================
 cat >> .config <<EOF
 CONFIG_PACKAGE_luci=y
@@ -62,14 +60,15 @@ EOF
 
 
 # =========================================================================================
-# 3. FULL AUTOMATION SCRIPT (PLUG & PLAY UNTUK STB B860H)
+# 3. FULL AUTOMATION SCRIPT (PLUG & PLAY B860H / HG680P)
 # =========================================================================================
 mkdir -p package/base-files/files/etc/uci-defaults/
 
 cat << "EOF" > package/base-files/files/etc/uci-defaults/99-custom-setup
 #!/bin/sh
 
-# --- 1. KONFIGURASI JARINGAN ---
+# --- 1. JARINGAN & FIREWALL ---
+# Port bawaan STB (eth0) sebagai penyebar LAN
 uci set network.br_lan=device
 uci set network.br_lan.name='br-lan'
 uci set network.br_lan.type='bridge'
@@ -81,6 +80,7 @@ uci set network.lan.proto='static'
 uci set network.lan.ipaddr='192.168.1.1'
 uci set network.lan.netmask='255.255.255.0'
 
+# USB to LAN (eth1) sebagai penerima Internet (WAN)
 uci set network.wan=interface
 uci set network.wan.proto='dhcp'
 uci set network.wan.device='eth1'
@@ -88,62 +88,73 @@ uci set network.wan.device='eth1'
 uci set firewall.@zone[0].network='lan'
 uci set firewall.@zone[1].network='wan wan6'
 
-# --- 2. KONFIGURASI WIFI TEST ---
+# --- 2. WIFI TEST ---
 uci set wireless.@wifi-device[0].disabled='0'
 uci set wireless.@wifi-iface[0].disabled='0'
 uci set wireless.@wifi-iface[0].ssid='OpenWrt-STB'
 uci set wireless.@wifi-iface[0].network='lan'
 
-# --- 3. KONFIGURASI SQM (ANTI-LAG GAMING 10MBPS) ---
+# --- 3. SQM & PING OPTIMIZER (OVERHEAD FIBER OPTIC & 8.5 Mbps Limit) ---
 uci set sqm.@queue[0].enabled='1'
 uci set sqm.@queue[0].interface='eth1'
 uci set sqm.@queue[0].download='8500'
 uci set sqm.@queue[0].upload='8500'
 uci set sqm.@queue[0].qdisc='cake'
 uci set sqm.@queue[0].script='piece_of_cake.qos'
-uci set sqm.@queue[0].linklayer='none'
+uci set sqm.@queue[0].linklayer='ethernet'
+uci set sqm.@queue[0].overhead='44'
 
-# --- 4. KONFIGURASI DNSMASQ & ADGUARD ---
+# --- 4. DNSMASQ, ANTI KEBOCORAN IPV6, & FORCE DNS ADGUARD ---
+# Pindahkan port Dnsmasq agar port 53 bisa dipakai AdGuard
 uci set dhcp.@dnsmasq[0].port='5353'
+uci set dhcp.lan.dhcpv6='disabled'
+uci set dhcp.lan.ra='disabled'
+uci set dhcp.lan.ndp='disabled'
+# Kunci agar semua perangkat wajib meminta DNS dari IP STB
+uci add_list dhcp.lan.dhcp_option='6,192.168.1.1'
+
+# --- 5. TEMA ARGON DEFAULT ---
+uci set luci.main.mediaurlbase='/luci-static/argon'
+
+# --- 6. AKTIFKAN ADGUARD HOME LOKAL ---
 uci set adguardhome.AdGuardHome=adguardhome
 uci set adguardhome.AdGuardHome.enabled='1'
 
-# --- 5. JADIKAN TEMA ARGON SEBAGAI TEMA UTAMA ---
-# Secara otomatis mengganti tema bawaan (bootstrap) menjadi Tema Argon
-uci set luci.main.mediaurlbase='/luci-static/argon'
+# Simpan semua konfigurasi uci
+uci commit
 
-# Simpan semua konfigurasi LuCI dan Sistem
-uci commit luci
-uci commit network
-uci commit firewall
-uci commit wireless
-uci commit sqm
-uci commit dhcp
-uci commit adguardhome
+# --- 7. INJEKSI TCP BBR (ALGORITMA ANTI-LAG GOOGLE) ---
+echo "net.core.default_qdisc=fq" >> /etc/sysctl.conf
+echo "net.ipv4.tcp_congestion_control=bbr" >> /etc/sysctl.conf
 
-# --- 6. BYPASS WIZARD ADGUARD HOME ---
+# --- 8. KONFIGURASI ADGUARD HOME (BYPASS WIZARD AMAN) ---
 mkdir -p /etc/adguardhome
-cat << "YAMLEOF" > /etc/adguardhome.yaml
+cat << "YAMLEOF" > /etc/adguardhome/adguardhome.yaml
 bind_host: 0.0.0.0
 bind_port: 3000
 dns:
   bind_hosts:
-  - 0.0.0.0
+    - 0.0.0.0
   port: 53
   bootstrap_dns:
-  - 1.1.1.1
-  - 8.8.8.8
+    - 8.8.8.8
+    - 1.1.1.1
   upstream_dns:
-  - 1.1.1.1
-  - 8.8.8.8
-filters:
-  - enabled: true
-    url: https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt
-    name: AdGuard DNS filter
-    id: 1
+    - https://dns.google/dns-query
+    - https://cloudflare-dns.com/dns-query
 YAMLEOF
 
 exit 0
 EOF
 
+# =========================================================================================
+# 4. DOWNLOAD & INJEKSI CORE ADGUARD LANGSUNG KE DALAM FIRMWARE (ANTI GAGAL INTERNET)
+# =========================================================================================
+mkdir -p files/usr/bin/AdGuardHome
+wget -qO /tmp/AdGuardHome.tar.gz https://github.com/AdguardTeam/AdGuardHome/releases/latest/download/AdGuardHome_linux_arm64.tar.gz
+tar -xzvf /tmp/AdGuardHome.tar.gz -C /tmp/
+cp /tmp/AdGuardHome/AdGuardHome files/usr/bin/AdGuardHome/
+chmod +x files/usr/bin/AdGuardHome/AdGuardHome
+
+# Memberikan izin eksekusi untuk script setup otomatis
 chmod +x package/base-files/files/etc/uci-defaults/99-custom-setup
